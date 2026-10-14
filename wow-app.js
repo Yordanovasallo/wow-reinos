@@ -1,10 +1,21 @@
 /* ================================================================
-   REINOS DE AZEROTH - v2
-   SOLO EL PORTAL DE USUARIOS (entrar / crear cuenta).
-   Datos: Nombre del rey, Nombre del reino y contraseña.
+   REINOS DE AZEROTH - v3
+   Portal de usuarios + menú plegable + Edificios (construir).
    ================================================================ */
 const SB_URL = "https://upvqpyxscajqoszqsowa.supabase.co/rest/v1";
 const KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwdnFweXhzY2FqcW9zenFzb3dhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzOTM5NTEsImV4cCI6MjEwNjk2OTk1MX0.JH-kcwpAd6y7BCqzTE5vj_hbNdbxaZecnty6XjPvQwg";
+
+const BLD = {
+  ayuntamiento: { e:"🏛️", n:"Ayuntamiento", d:"El corazón de tu reino." },
+  mina:         { e:"⛏️", n:"Mina",         d:"Extrae mineral." },
+  granja:       { e:"🌾", n:"Granja",       d:"Alimenta a tu pueblo." },
+  aserradero:   { e:"🪵", n:"Aserradero",   d:"Corta y guarda madera." },
+  cuartel:      { e:"⚔️", n:"Cuartel",      d:"Entrena a tus tropas." },
+  herreria:     { e:"🔨", n:"Herrería",     d:"Forja armas y armaduras." },
+  mercado:      { e:"🏪", n:"Mercado",      d:"Comercia con otros reinos." },
+  muralla:      { e:"🛡️", n:"Muralla",      d:"Protege tu reino." },
+  torre:        { e:"🔭", n:"Torre",        d:"Vigila el horizonte." }
+};
 
 const $ = sel => document.querySelector(sel);
 
@@ -28,7 +39,7 @@ async function pbkdf2Hex(pass, saltHex, iters){
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", enc.encode(pass), "PBKDF2", false, ["deriveBits"]);
   const salt = new Uint8Array(saltHex.match(/.{2}/g).map(h => parseInt(h, 16)));
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: iters, hash: "SHA-256" }, key, 256);
+  const bits = await crypto.subtle.deriveBits({ name:"PBKDF2", salt, iterations:iters, hash:"SHA-256" }, key, 256);
   return [...new Uint8Array(bits)].map(b => b.toString(16).padStart(2, "0")).join("");
 }
 function newSalt(){
@@ -36,6 +47,7 @@ function newSalt(){
   crypto.getRandomValues(a);
   return [...a].map(b => b.toString(16).padStart(2, "0")).join("");
 }
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 function shortMsg(e){
   const m = (e && e.message) || "Algo falló.";
   return m.length > 180 ? m.slice(0, 177) + "…" : m;
@@ -45,36 +57,39 @@ function notice(el, text, cls){
   el.textContent = text;
   el.className = "notice" + (cls ? " " + cls : "");
 }
-function showScreen(id){
-  ["screenPortal", "screenHome", "screenAcct"].forEach(s => {
-    const el = document.getElementById(s); if(el) el.classList.toggle("hidden", s !== id);
-  });
-}
 
-/* ---------------- portal ---------------- */
 const App = {
   token: null,
   user: null,
+  page: "home",
 
   init(){
     $("#tabLogin").onclick = () => this.tab("login");
     $("#tabReg").onclick = () => this.tab("reg");
     $("#formLogin").onsubmit = e => { e.preventDefault(); this.login(); };
     $("#formReg").onsubmit = e => { e.preventDefault(); this.register(); };
-    $("#formPw").onsubmit = e => { e.preventDefault(); this.changePw(); };
-    $("#btnAcct").onclick = () => this.acct();
-    $("#btnBack").onclick = () => this.home();
-    $("#btnLogout").onclick = () => this.logout();
-    $("#btnLogout2").onclick = () => this.logout();
+
+    $("#menuBtn").onclick = () => this.toggleMenu();
+    $("#menuOver").onclick = () => this.closeMenu();
+    $("#mLogout").onclick = () => this.logout();
+    document.querySelectorAll(".menuItem").forEach(btn => {
+      btn.onclick = () => this.go(btn.dataset.page);
+    });
 
     const tok = localStorage.getItem("wow_token");
     if(tok){
       sbRpc("wow_check", { p_token: tok })
-        .then(me => { if(me && me.id){ this.token = tok; this.user = me; this.home(); } else this.portal(); })
+        .then(me => { if(me && me.id){ this.token = tok; this.user = me; this.enterGame(); } else this.portal(); })
         .catch(() => this.portal());
     }else{
       this.portal();
     }
+  },
+
+  /* ---------- portal ---------- */
+  portal(){
+    this.show("screenPortal");
+    notice($("#liMsg"), ""); notice($("#rgMsg"), "");
   },
   tab(which){
     $("#tabLogin").classList.toggle("on", which === "login");
@@ -82,11 +97,6 @@ const App = {
     $("#formLogin").classList.toggle("hidden", which !== "login");
     $("#formReg").classList.toggle("hidden", which !== "reg");
   },
-  portal(){
-    showScreen("screenPortal");
-    notice($("#liMsg"), ""); notice($("#rgMsg"), "");
-  },
-
   async login(){
     const name = $("#liName").value.trim(), pass = $("#liPass").value;
     if(!name || !pass) return notice($("#liMsg"), "Escribe tu nombre de rey y tu contraseña.", "danger");
@@ -99,10 +109,9 @@ const App = {
       localStorage.setItem("wow_token", r.token);
       this.token = r.token; this.user = { id: r.id, name: r.name, realm: r.realm };
       notice($("#liMsg"), "");
-      this.home();
+      this.enterGame();
     }catch(e){ notice($("#liMsg"), shortMsg(e), "danger"); }
   },
-
   async register(){
     const name = $("#rgName").value.trim(), realm = $("#rgRealm").value.trim(), pass = $("#rgPass").value;
     if(name.length < 2) return notice($("#rgMsg"), "Escribe tu nombre de rey (así entrarás después).", "danger");
@@ -117,25 +126,122 @@ const App = {
       localStorage.setItem("wow_token", r.token);
       this.token = r.token; this.user = { id: r.id, name: r.name, realm: r.realm };
       notice($("#rgMsg"), "");
-      this.home();
+      this.enterGame();
     }catch(e){ notice($("#rgMsg"), shortMsg(e), "danger"); }
   },
+  async logout(){
+    try{ await sbRpc("wow_logout", { p_token: this.token }); }catch(_){}
+    localStorage.removeItem("wow_token");
+    this.token = null; this.user = null;
+    this.portal();
+  },
 
-  home(){
+  /* ---------- juego ---------- */
+  show(id){
+    ["screenPortal","screenGame"].forEach(s => {
+      const el = document.getElementById(s); if(el) el.classList.toggle("hidden", s !== id);
+    });
+  },
+  enterGame(){
     if(!this.user) return this.portal();
-    $("#hRealm").textContent = "🏰 " + this.user.realm;
-    $("#hKing").textContent = this.user.name;
-    showScreen("screenHome");
+    $("#topRealm").textContent = "🏰 " + this.user.realm;
+    $("#topKing").textContent = "👑 " + this.user.name;
+    $("#menuRealm").textContent = this.user.realm;
+    this.show("screenGame");
+    this.go("home");
+  },
+  toggleMenu(){ document.getElementById("menu").classList.contains("hidden") ? this.openMenu() : this.closeMenu(); },
+  openMenu(){
+    $("#menu").classList.remove("hidden"); $("#menuOver").classList.remove("hidden");
+    requestAnimationFrame(() => $("#menu").classList.add("open"));
+  },
+  closeMenu(){
+    $("#menu").classList.remove("open");
+    setTimeout(() => { $("#menu").classList.add("hidden"); $("#menuOver").classList.add("hidden"); }, 250);
+  },
+  go(page){
+    this.page = page;
+    document.querySelectorAll(".menuItem").forEach(b => b.classList.toggle("on", b.dataset.page === page));
+    this.closeMenu();
+    if(page === "buildings") return this.renderBuildings();
+    if(page === "account")   return this.renderAccount();
+    return this.renderHome();
   },
 
-  acct(){
-    if(!this.user) return;
-    $("#acctInfo").innerHTML = "👑 Rey: <b>" + esc(this.user.name) + "</b> · 🏰 Reino: <b>" + esc(this.user.realm) + "</b>";
-    $("#pw1").value = ""; $("#pw2").value = "";
-    notice($("#pwMsg"), "");
-    showScreen("screenAcct");
+  renderHome(){
+    $("#page").innerHTML = `
+      <div class="cardHome">
+        <h1 class="realmTitle">🏰 ${esc(this.user.realm)}</h1>
+        <p class="kingLine">👑 Rey <b>${esc(this.user.name)}</b></p>
+        <p class="hint">Toca el botón <b>☰</b> de arriba a la izquierda para abrir el menú.<br>
+        Empieza en <b>🏰 Edificios</b> para construir tu reino.</p>
+      </div>`;
   },
 
+  async renderBuildings(){
+    $("#page").innerHTML = `<h2 class="pageTitle">🏰 Edificios</h2>
+      <p class="pageSub">Construye los edificios de tu reino.</p>
+      <div id="bGrid" class="grid"></div>
+      <div id="bMsg" class="notice"></div>`;
+    try{
+      const list = await sbRpc("wow_buildings", { p_token: this.token });
+      this.drawBuildings(list);
+    }catch(e){ notice($("#bMsg"), shortMsg(e), "danger"); }
+  },
+  drawBuildings(list){
+    const grid = $("#bGrid"); if(!grid) return;
+    if(!list.length){ grid.innerHTML = `<p class="hint">No hay edificios disponibles.</p>`; return; }
+    grid.innerHTML = list.map(it => {
+      const c = BLD[it.key] || { e:"🏠", n:it.key, d:"" };
+      if(it.built){
+        return `<div class="bcard done">
+            <div class="bcardTop"><span class="emoji">${c.e}</span>
+              <div><div class="bName">${esc(c.n)}</div><div class="bDesc">${esc(c.d)}</div></div></div>
+            <div class="built">✅ Construido <span class="lvl">Nivel ${it.level}</span></div>
+          </div>`;
+      }
+      return `<div class="bcard">
+          <div class="bcardTop"><span class="emoji">${c.e}</span>
+            <div><div class="bName">${esc(c.n)}</div><div class="bDesc">${esc(c.d)}</div></div></div>
+          <button class="btn" data-build="${esc(it.key)}">🔨 Construir</button>
+        </div>`;
+    }).join("");
+    grid.querySelectorAll("[data-build]").forEach(btn => {
+      btn.onclick = () => this.build(btn);
+    });
+  },
+  async build(btn){
+    const key = btn.dataset.build;
+    btn.disabled = true; btn.textContent = "Construyendo…";
+    try{
+      await sbRpc("wow_build", { p_token: this.token, p_key: key });
+      const list = await sbRpc("wow_buildings", { p_token: this.token });
+      this.drawBuildings(list);
+      notice($("#bMsg"), "✅ ¡Construido!", "ok");
+    }catch(e){
+      notice($("#bMsg"), shortMsg(e), "danger");
+      btn.disabled = false; btn.textContent = "🔨 Construir";
+    }
+  },
+
+  renderAccount(){
+    $("#page").innerHTML = `
+      <h2 class="pageTitle">👤 Mi cuenta</h2>
+      <p class="pageSub">Estos son los datos de tu rey.</p>
+      <div class="cardHome">
+        <p class="kingLine">👑 Rey: <b>${esc(this.user.name)}</b><br>🏰 Reino: <b>${esc(this.user.realm)}</b></p>
+        <h3 class="bName" style="margin:6px 0 8px">Cambiar contraseña</h3>
+        <form id="formPw">
+          <input id="pw1" type="password" placeholder="Nueva contraseña" autocomplete="new-password">
+          <input id="pw2" type="password" placeholder="Repite la contraseña" autocomplete="new-password">
+          <button class="btn">Guardar contraseña</button>
+          <div id="pwMsg" class="notice"></div>
+        </form>
+        <div class="rowBtns"><button class="btn sm" id="accLogout">🚪 Salir de mi cuenta</button></div>
+      </div>`;
+    $("#formPw").onsubmit = e => { e.preventDefault(); this.changePw(); };
+    $("#accLogout").onclick = () => this.logout();
+  },
   async changePw(){
     const p1 = $("#pw1").value, p2 = $("#pw2").value;
     if(p1.length < 4) return notice($("#pwMsg"), "La contraseña debe tener al menos 4 caracteres.", "danger");
@@ -144,24 +250,14 @@ const App = {
       const salt = newSalt();
       const hash = await pbkdf2Hex(p1, salt, 100000);
       await sbRpc("wow_change_password", { p_token: this.token, p_salt: salt, p_hash: hash });
+      $("#pw1").value = ""; $("#pw2").value = "";
       notice($("#pwMsg"), "¡Contraseña cambiada!", "ok");
     }catch(e){ notice($("#pwMsg"), shortMsg(e), "danger"); }
-  },
-
-  async logout(){
-    try{ await sbRpc("wow_logout", { p_token: this.token }); }catch(_){}
-    localStorage.removeItem("wow_token");
-    this.token = null; this.user = null;
-    this.portal();
   }
 };
 
-function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
-
 window.addEventListener("error", ev => {
-  try{
-    const box = document.getElementById("rgMsg") || document.getElementById("liMsg");
-    if(box){ box.textContent = "Error inesperado: " + (ev.message || "desconocido"); box.className = "notice danger"; }
-  }catch(_){}
+  const box = document.getElementById("rgMsg") || document.getElementById("liMsg");
+  if(box){ box.textContent = "Error inesperado: " + (ev.message || "desconocido"); box.className = "notice danger"; }
 });
 document.addEventListener("DOMContentLoaded", () => App.init());

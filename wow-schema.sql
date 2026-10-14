@@ -163,3 +163,48 @@ grant execute on function public.wow_logout(text) to anon, authenticated;
 grant execute on function public.wow_check(text) to anon, authenticated;
 grant execute on function public.wow_salt(text) to anon, authenticated;
 grant execute on function public.wow_change_password(text, text, text) to anon, authenticated;
+
+-- ================================================================
+-- EDIFICIOS (construir)
+-- ================================================================
+create table if not exists public.wow_buildings(
+  owner_id text not null references public.wow_users(id) on delete cascade,
+  bkey text not null,
+  level integer not null default 1,
+  created bigint not null default 0,
+  primary key (owner_id, bkey)
+);
+alter table public.wow_buildings enable row level security;
+
+create or replace function public.wow_buildings(p_token text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; out jsonb;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  select coalesce(jsonb_agg(jsonb_build_object(
+             'key', v.k, 'level', coalesce(b.level, 0), 'built', b.level is not null)
+           order by v.ord), '[]') into out
+    from (values ('ayuntamiento',1),('mina',2),('granja',3),('aserradero',4),
+                 ('cuartel',5),('herreria',6),('mercado',7),('muralla',8),('torre',9)) v(k,ord)
+    left join wow_buildings b on b.owner_id = u.id and b.bkey = v.k;
+  return out;
+end $$;
+
+create or replace function public.wow_build(p_token text, p_key text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  if coalesce(p_key,'') not in ('ayuntamiento','mina','granja','aserradero','cuartel','herreria','mercado','muralla','torre') then
+    raise exception 'Edificio no válido.'; end if;
+  if exists(select 1 from wow_buildings where owner_id = u.id and bkey = p_key) then
+    raise exception 'Ya construiste ese edificio.'; end if;
+  insert into wow_buildings (owner_id, bkey, level, created)
+  values (u.id, p_key, 1, (extract(epoch from now())*1000)::bigint);
+  return jsonb_build_object('ok', true, 'key', p_key);
+end $$;
+
+grant execute on function public.wow_buildings(text) to anon, authenticated;
+grant execute on function public.wow_build(text, text) to anon, authenticated;
