@@ -26,6 +26,16 @@ drop function if exists public.wow_state(text);
 drop function if exists public.wow_build(text, text);
 drop function if exists public.wow_train(text, text, integer);
 drop function if exists public.wow_leaderboard(text);
+drop function if exists public.wow_map(text);
+drop function if exists public.wow_alliance_create(text, text, text, text);
+drop function if exists public.wow_alliance_join(text, text);
+drop function if exists public.wow_alliance_leave(text);
+drop function if exists public.wow_alliance_list(text);
+drop function if exists public.wow_alliance_info(text, text);
+drop function if exists public.wow_chat_send(text, text);
+drop function if exists public.wow_chat(text, bigint);
+drop table if exists public.wow_chat cascade;
+drop table if exists public.wow_alliances cascade;
 drop table if exists public.wow_queue cascade;
 drop table if exists public.wow_troops cascade;
 drop table if exists public.wow_buildings cascade;
@@ -45,7 +55,9 @@ create table public.wow_users(
   last_ms bigint not null default 0,
   gold numeric(16,2) not null default 500,
   wood numeric(16,2) not null default 500,
-  ore numeric(16,2) not null default 500
+  ore numeric(16,2) not null default 500,
+  pos integer not null default 0,
+  alliance text
 );
 create table public.wow_sessions(
   id bigserial primary key,
@@ -75,12 +87,30 @@ create table public.wow_queue(
   start_ms bigint not null default 0,
   finish_ms bigint not null default 0
 );
+create table public.wow_alliances(
+  id text primary key,
+  name text not null,
+  tag text not null,
+  leader text not null,
+  created bigint not null default 0,
+  descr text not null default ''
+);
+create table public.wow_chat(
+  id bigserial primary key,
+  alliance text not null references public.wow_alliances(id) on delete cascade,
+  user_id text not null,
+  name text not null,
+  msg text not null,
+  created bigint not null default 0
+);
 
 alter table public.wow_users enable row level security;
 alter table public.wow_sessions enable row level security;
 alter table public.wow_buildings enable row level security;
 alter table public.wow_troops enable row level security;
 alter table public.wow_queue enable row level security;
+alter table public.wow_alliances enable row level security;
+alter table public.wow_chat enable row level security;
 
 -- ---------- utilidades ----------
 create or replace function public._wow_key(p_name text)
@@ -233,8 +263,9 @@ begin
   if coalesce(p_salt,'') = '' or coalesce(p_hash,'') = '' then raise exception 'Faltan datos de seguridad.'; end if;
   if exists(select 1 from wow_users where name_key = vkey) then
     raise exception 'Ese nombre de reino ya está en uso. Prueba con otro.'; end if;
-  insert into wow_users (id, name, name_key, faction, salt, hash, active, created, last_ms, gold, wood, ore)
-  values (vkey, vname, vkey, vfac, p_salt, p_hash, true, p_now, p_now, 500, 500, 500);
+  insert into wow_users (id, name, name_key, faction, salt, hash, active, created, last_ms, gold, wood, ore, pos, alliance)
+  values (vkey, vname, vkey, vfac, p_salt, p_hash, true, p_now, p_now, 500, 500, 500,
+          (select coalesce(max(pos), -1) + 1 from wow_users), null);
   return jsonb_build_object('ok', true, 'id', vkey);
 end $$;
 
@@ -299,7 +330,9 @@ begin
        + (select coalesce(sum(qty),0) from wow_troops where owner_id = u.id);
   return jsonb_build_object('id', u.id, 'name', u.name, 'faction', u.faction,
     'gold', u.gold, 'wood', u.wood, 'ore', u.ore, 'capacity', cap, 'rate', rate,
-    'buildings', blds, 'troops', trs, 'queue', que, 'points', pts, 'now', ms);
+    'buildings', blds, 'troops', trs, 'queue', que, 'points', pts, 'now', ms,
+    'alliance', u.alliance,
+    'ally_tag', coalesce((select tag from wow_alliances where id = u.alliance), ''));
 end $$;
 
 grant execute on function public.wow_state(text) to anon, authenticated;
@@ -375,12 +408,12 @@ begin
   select coalesce(jsonb_agg(jsonb_build_object(
              'name', s.name, 'faction', s.faction, 'points', s.lsum*100 + s.tsum,
              'level_sum', s.lsum, 'troops', s.tsum, 'created', s.created,
-             'me', s.id = u.id) order by s.lsum*100 + s.tsum desc, s.created), '[]') into out
+             'alliance', s.atag, 'me', s.id = u.id) order by s.lsum*100 + s.tsum desc, s.created), '[]') into out
     from (
-      select w.id, w.name, w.faction, w.created,
+      select w.id, w.name, w.faction, w.created, coalesce(al.tag,'') atag,
              coalesce((select sum(b.level) from wow_buildings b where b.owner_id = w.id),0) lsum,
              coalesce((select sum(t.qty) from wow_troops t where t.owner_id = w.id),0) tsum
-        from wow_users w where w.active
+        from wow_users w left join wow_alliances al on al.id = w.alliance where w.active
     ) s;
   return out;
 end $$;
@@ -410,3 +443,161 @@ begin
   return jsonb_build_object('ok', true);
 end $$;
 grant execute on function public.wow_change_password(text, text, text) to anon, authenticated;
+
+-- ================================================================
+-- MAPA DE REINOS + ALIANZAS + CHAT
+-- ================================================================
+create or replace function public._wow_points(p_owner text)
+returns integer language sql security definer set search_path to 'public' as $$
+  select (select coalesce(sum(level),0) from wow_buildings where owner_id = p_owner) * 100
+       + (select coalesce(sum(qty),0) from wow_troops where owner_id = p_owner)
+$$;
+revoke all on function public._wow_points(text) from public, anon, authenticated;
+
+-- ---------- mapa: todos los reinos con su posición ----------
+create or replace function public.wow_map(p_token text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; out jsonb;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  select coalesce(jsonb_agg(jsonb_build_object(
+             'pos', w.pos, 'name', w.name, 'faction', w.faction,
+             'alliance', coalesce(al.tag,''), 'points', _wow_points(w.id), 'me', w.id = u.id)
+           order by w.pos), '[]') into out
+    from wow_users w left join wow_alliances al on al.id = w.alliance
+   where w.active;
+  return out;
+end $$;
+grant execute on function public.wow_map(text) to anon, authenticated;
+
+-- ---------- crear alianza ----------
+create or replace function public.wow_alliance_create(p_token text, p_name text, p_tag text, p_descr text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; vname text; vkey text; vtag text;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  if u.alliance is not null then raise exception 'Ya estás en una alianza. Sal de la actual primero.'; end if;
+  vname := btrim(coalesce(p_name,''));
+  if length(vname) < 3 then raise exception 'El nombre de la alianza debe tener al menos 3 letras.'; end if;
+  vtag := upper(regexp_replace(btrim(coalesce(p_tag,'')), '[^A-Za-z0-9]', '', 'g'));
+  if length(vtag) < 2 or length(vtag) > 5 then raise exception 'La etiqueta debe tener entre 2 y 5 letras o números.'; end if;
+  vkey := _wow_key(vname);
+  if exists(select 1 from wow_alliances where id = vkey) then
+    raise exception 'Ya existe una alianza con ese nombre.'; end if;
+  insert into wow_alliances (id, name, tag, leader, created, descr)
+  values (vkey, vname, vtag, u.id, (extract(epoch from now())*1000)::bigint, left(coalesce(p_descr,''), 200));
+  update wow_users set alliance = vkey where id = u.id;
+  return jsonb_build_object('ok', true, 'id', vkey, 'tag', vtag);
+end $$;
+grant execute on function public.wow_alliance_create(text, text, text, text) to anon, authenticated;
+
+-- ---------- unirse ----------
+create or replace function public.wow_alliance_join(p_token text, p_id text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  if u.alliance is not null then raise exception 'Ya estás en una alianza. Sal de la actual primero.'; end if;
+  if not exists(select 1 from wow_alliances where id = p_id) then
+    raise exception 'Esa alianza ya no existe.'; end if;
+  update wow_users set alliance = p_id where id = u.id;
+  return jsonb_build_object('ok', true, 'id', p_id);
+end $$;
+grant execute on function public.wow_alliance_join(text, text) to anon, authenticated;
+
+-- ---------- salir ----------
+create or replace function public.wow_alliance_leave(p_token text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; vlea text; vnext text; vcnt integer;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  if u.alliance is null then raise exception 'No estás en ninguna alianza.'; end if;
+  select leader into vlea from wow_alliances where id = u.alliance;
+  if vlea = u.id then
+    select count(*) into vcnt from wow_users where alliance = u.alliance and id <> u.id;
+    if vcnt = 0 then
+      delete from wow_alliances where id = u.alliance;
+    else
+      select id into vnext from wow_users where alliance = u.alliance and id <> u.id order by created limit 1;
+      update wow_alliances set leader = vnext where id = u.alliance;
+    end if;
+  end if;
+  update wow_users set alliance = null where id = u.id;
+  return jsonb_build_object('ok', true);
+end $$;
+grant execute on function public.wow_alliance_leave(text) to anon, authenticated;
+
+-- ---------- listar alianzas ----------
+create or replace function public.wow_alliance_list(p_token text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; out jsonb;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  select coalesce(jsonb_agg(jsonb_build_object(
+             'id', a.id, 'name', a.name, 'tag', a.tag, 'descr', a.descr,
+             'members', (select count(*) from wow_users w where w.alliance = a.id),
+             'points', (select coalesce(sum(_wow_points(w.id)),0) from wow_users w where w.alliance = a.id),
+             'mine', a.id = u.alliance)
+           order by (select coalesce(sum(_wow_points(w.id)),0) from wow_users w where w.alliance = a.id) desc, a.created), '[]') into out
+    from wow_alliances a;
+  return out;
+end $$;
+grant execute on function public.wow_alliance_list(text) to anon, authenticated;
+
+-- ---------- info de una alianza ----------
+create or replace function public.wow_alliance_info(p_token text, p_id text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; a wow_alliances; mem jsonb;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  select * into a from wow_alliances where id = p_id;
+  if a.id is null then raise exception 'Esa alianza ya no existe.'; end if;
+  select coalesce(jsonb_agg(jsonb_build_object(
+             'name', w.name, 'faction', w.faction, 'points', _wow_points(w.id),
+             'leader', w.id = a.leader, 'me', w.id = u.id)
+           order by (w.id = a.leader) desc, w.created), '[]') into mem
+    from wow_users w where w.alliance = a.id;
+  return jsonb_build_object('id', a.id, 'name', a.name, 'tag', a.tag, 'descr', a.descr,
+    'leader', (select name from wow_users where id = a.leader),
+    'members', mem, 'is_member', u.alliance = a.id);
+end $$;
+grant execute on function public.wow_alliance_info(text, text) to anon, authenticated;
+
+-- ---------- chat de alianza ----------
+create or replace function public.wow_chat_send(p_token text, p_msg text)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; vmsg text;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  if u.alliance is null then raise exception 'Entra a una alianza para usar el chat.'; end if;
+  vmsg := btrim(coalesce(p_msg,''));
+  if vmsg = '' then raise exception 'Escribe un mensaje.'; end if;
+  if length(vmsg) > 300 then vmsg := left(vmsg, 300); end if;
+  insert into wow_chat (alliance, user_id, name, msg, created)
+  values (u.alliance, u.id, u.name, vmsg, (extract(epoch from now())*1000)::bigint);
+  return jsonb_build_object('ok', true);
+end $$;
+grant execute on function public.wow_chat_send(text, text) to anon, authenticated;
+
+create or replace function public.wow_chat(p_token text, p_since bigint)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare u wow_users; out jsonb;
+begin
+  u := _wow_sess(p_token);
+  if u.id is null then raise exception 'Sesión expirada. Vuelve a entrar.'; end if;
+  if u.alliance is null then return '[]'::jsonb; end if;
+  select coalesce(jsonb_agg(jsonb_build_object(
+             'name', c.name, 'msg', c.msg, 'created', c.created, 'me', c.user_id = u.id) order by c.id), '[]') into out
+    from (select * from wow_chat where alliance = u.alliance
+           and (coalesce(p_since,0) = 0 or created > coalesce(p_since,0))
+           order by id desc limit 60) c;
+  return out;
+end $$;
+grant execute on function public.wow_chat(text, bigint) to anon, authenticated;

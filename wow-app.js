@@ -6,6 +6,7 @@ const SB_URL = "https://upvqpyxscajqoszqsowa.supabase.co/rest/v1";
 const KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwdnFweXhzY2FqcW9zenFzb3dhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzOTM5NTEsImV4cCI6MjEwNjk2OTk1MX0.JH-kcwpAd6y7BCqzTE5vj_hbNdbxaZecnty6XjPvQwg";
 
 const $ = sel => document.querySelector(sel);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const un = n => Number(n || 0).toLocaleString("es", { maximumFractionDigits: 0 });
 const fmt = n => Number(n || 0).toLocaleString("es", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 function tfmt(sec){
@@ -60,6 +61,15 @@ function notice(el, text, cls){
   el.textContent = text;
   el.className = "notice" + (cls ? " " + cls : "");
 }
+const hora = ms => { try{ return new Date(Number(ms)).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }); }catch(_){ return ""; } };
+function modalClose(){ const m = $("#modal"); if(m) m.classList.add("hidden"); }
+function modal(html){
+  const m = $("#modal"), box = $("#modalBox"); if(!m || !box) return;
+  box.innerHTML = html + '<div style="text-align:center;margin-top:16px"><button class="btn sm" id="modalClose">Cerrar</button></div>';
+  m.classList.remove("hidden");
+  const btn = box.querySelector("#modalClose"); if(btn) btn.onclick = modalClose;
+  m.onclick = e => { if(e.target === m) modalClose(); };
+}
 function showScreen(id){
   ["screenPortal", "screenGame", "screenAcct"].forEach(s => {
     const el = document.getElementById(s); if(el) el.classList.toggle("hidden", s !== id);
@@ -107,10 +117,14 @@ const Auth = {
         Game.tab = b.dataset.tab;
         $("#tabBld").classList.toggle("hidden", Game.tab !== "bld");
         $("#tabTroop").classList.toggle("hidden", Game.tab !== "troop");
+        $("#tabMap").classList.toggle("hidden", Game.tab !== "map");
+        $("#tabAlly").classList.toggle("hidden", Game.tab !== "ally");
         $("#tabRank").classList.toggle("hidden", Game.tab !== "rank");
         if(Game.tab === "rank") Game.loadRank();
         if(Game.tab === "bld") Game.renderBld();
         if(Game.tab === "troop") Game.renderTroop();
+        if(Game.tab === "map") Game.loadMap();
+        if(Game.tab === "ally") Game.renderAlly(); else Game.stopChatPoll();
       };
     });
     this.portal();
@@ -190,7 +204,7 @@ const Auth = {
 
 /* ---------------- el reino ---------------- */
 const Game = {
-  me: null, st: null, stNow: 0, tab: "bld", timer: null, syncing: false, rankLoaded: false,
+  me: null, st: null, stNow: 0, tab: "bld", timer: null, syncing: false, rankLoaded: false, mapList: [], chatTimer: null,
 
   async start(me){
     this.me = me;
@@ -199,6 +213,7 @@ const Game = {
     const f = $("#gFac");
     f.textContent = me.faction === "horda" ? "⚔️ Horda" : "🛡️ Alianza";
     f.className = "facBadge " + (me.faction === "horda" ? "horda" : "alianza");
+    const ab = $("#gAlly"); if(ab){ ab.textContent = ""; ab.style.display = "none"; }
     await this.refresh();
     this.loop();
   },
@@ -208,8 +223,11 @@ const Game = {
       this.st = await sbRpc("wow_state", { p_token: this.me.token });
       this.stNow = Date.now();
       $("#gPts").textContent = un(this.st.points);
+      const ab = $("#gAlly");
+      if(ab){ ab.textContent = this.st.ally_tag ? "[" + this.st.ally_tag + "]" : ""; ab.style.display = this.st.ally_tag ? "" : "none"; }
       this.renderBld(); this.renderTroop(); this.tick();
       if(this.tab === "rank" && this.rankLoaded) this.loadRank();
+      if(this.tab === "map") this.loadMap();
     }catch(e){ toast(shortMsg(e), true); }
   },
   loop(){
@@ -351,6 +369,140 @@ const Game = {
       html += "</table>";
       $("#tabRank").innerHTML = html || '<div class="empty">Aún no hay reinos en el ranking.</div>';
     }catch(e){ toast(shortMsg(e), true); }
+  },
+
+  /* ----- mapa ----- */
+  async loadMap(){
+    try{
+      this.mapList = await sbRpc("wow_map", { p_token: this.me.token }) || [];
+      this.renderMap();
+    }catch(e){ toast(shortMsg(e), true); }
+  },
+  renderMap(){
+    const list = this.mapList || [];
+    const byPos = {}; list.forEach(r => byPos[r.pos] = r);
+    const maxPos = list.reduce((m, r) => Math.max(m, r.pos), -1);
+    const total = Math.max(36, Math.ceil((maxPos + 1) / 6) * 6);
+    const TERRAIN = ["🌲", "⛰️", "🌊", "🏔️", "🌳", "🗻", "🌾", "🏞️"];
+    let html = '<div class="mapHint">🗺️ Cada recuadro es un reino. Toca uno para ver su ficha.</div><div class="mapGrid">';
+    for(let i = 0; i < total; i++){
+      const r = byPos[i];
+      if(r){
+        html += `<div class="tile realm ${r.faction === "horda" ? "horda" : "alianza"}${r.me ? " me" : ""}" data-i="${i}">
+          <div class="tEmoji">${r.faction === "horda" ? "⚔️" : "🛡️"}</div>
+          <div class="tName">${esc(r.name)}</div>
+          ${r.alliance ? `<div class="tTag">[${esc(r.alliance)}]</div>` : ""}
+        </div>`;
+      }else{
+        html += `<div class="tile empty">${TERRAIN[i % TERRAIN.length]}</div>`;
+      }
+    }
+    html += "</div>";
+    $("#tabMap").innerHTML = html;
+    $("#tabMap").querySelectorAll(".tile.realm").forEach(t => {
+      t.onclick = () => this.openProfile(parseInt(t.dataset.i, 10));
+    });
+  },
+  openProfile(pos){
+    const r = (this.mapList || []).find(x => x.pos === pos); if(!r) return;
+    const fac = r.faction === "horda" ? "⚔️ Horda" : "🛡️ Alianza";
+    modal(`<h2 style="margin-top:0;color:var(--gold)">🏰 ${esc(r.name)}</h2>
+      ${r.me ? '<p style="color:var(--green);margin:0 0 8px">Este es tu reino</p>' : ""}
+      <div class="profRow"><span class="k">Bando</span><span class="v">${fac}</span></div>
+      <div class="profRow"><span class="k">Puntos</span><span class="v">${un(r.points)}</span></div>
+      <div class="profRow"><span class="k">Alianza</span><span class="v">${r.alliance ? "[" + esc(r.alliance) + "]" : "Sin alianza"}</span></div>`);
+  },
+
+  /* ----- alianza ----- */
+  async renderAlly(){
+    if(!this.st) return;
+    try{
+      if(this.st.alliance) await this.renderAllyMine(this.st.alliance);
+      else await this.renderAllyNone();
+    }catch(e){ toast(shortMsg(e), true); }
+  },
+  async renderAllyNone(){
+    this.stopChatPoll();
+    const list = await sbRpc("wow_alliance_list", { p_token: this.me.token }) || [];
+    let html = `<div class="allyBox">
+      <div class="secTitle" style="margin-top:0">🤝 Crear una alianza</div>
+      <div class="allyCreate">
+        <input id="alName" placeholder="Nombre de la alianza" maxlength="30">
+        <input id="alTag" placeholder="Etiqueta (2-5 letras, ej. CRV)" maxlength="5">
+        <input id="alDesc" placeholder="Descripción (opcional)" maxlength="200">
+        <button class="btn" id="alCreate">Crear alianza</button>
+      </div>
+      <div class="secTitle">⚔️ Alianzas existentes</div>
+      <div class="allyList">`;
+    if(!list.length) html += '<div class="empty" style="padding:16px">Todavía no hay alianzas. ¡Crea la primera!</div>';
+    list.forEach(a => {
+      html += `<div class="allyCard">
+        <div class="info"><div class="t">[${esc(a.tag)}] ${esc(a.name)}</div>
+        <div class="m">${a.members} miembro${a.members === 1 ? "" : "s"} · ${un(a.points)} pts</div></div>
+        <button class="btn sm" data-join="${esc(a.id)}">Unirme</button>
+      </div>`;
+    });
+    html += `</div></div>`;
+    $("#tabAlly").innerHTML = html;
+    $("#alCreate").onclick = () => this.createAlly();
+    $("#tabAlly").querySelectorAll("[data-join]").forEach(b => { b.onclick = () => this.joinAlly(b.dataset.join); });
+  },
+  async renderAllyMine(id){
+    const info = await sbRpc("wow_alliance_info", { p_token: this.me.token, p_id: id });
+    let html = `<div class="allyBox">
+      <div class="allyHead"><span class="allyTagBig">[${esc(info.tag)}]</span>${esc(info.name)}</div>
+      <p class="allyDesc">${info.descr ? esc(info.descr) : "Sin descripción"}</p>
+      <div class="secTitle" style="margin-top:0">👥 Miembros (${info.members.length})</div>
+      <div class="members">`;
+    info.members.forEach(m => {
+      html += `<div class="mem${m.me ? " me" : ""}">${m.faction === "horda" ? "⚔️" : "🛡️"} ${esc(m.name)}${m.leader ? " 👑" : ""}<span class="memPts">${un(m.points)} pts</span></div>`;
+    });
+    html += `</div>
+      <div class="secTitle">💬 Chat de la alianza</div>
+      <div id="chatMsgs" class="chatBox"></div>
+      <div class="chatRow"><input id="chatIn" placeholder="Escribe a tu alianza…" maxlength="300"><button class="btn sm" id="chatSend">Enviar</button></div>
+      <div style="margin-top:14px"><button class="btn sm danger" id="allyLeave">🚪 Salir de la alianza</button></div>
+    </div>`;
+    $("#tabAlly").innerHTML = html;
+    $("#chatSend").onclick = () => this.sendChat();
+    $("#chatIn").onkeydown = e => { if(e.key === "Enter") this.sendChat(); };
+    $("#allyLeave").onclick = () => this.leaveAlly(info.name);
+    await this.loadChat();
+    this.startChatPoll();
+  },
+  stopChatPoll(){ clearInterval(this.chatTimer); this.chatTimer = null; },
+  startChatPoll(){ this.stopChatPoll(); this.chatTimer = setInterval(() => this.loadChat(), 4000); },
+  async loadChat(){
+    try{
+      const msgs = await sbRpc("wow_chat", { p_token: this.me.token, p_since: 0 });
+      const box = document.getElementById("chatMsgs"); if(!box) return;
+      box.innerHTML = (msgs && msgs.length)
+        ? msgs.map(m => `<div class="cmsg${m.me ? " me" : ""}"><span class="cwho">${esc(m.name)}:</span> ${esc(m.msg)} <span class="ctime">${hora(m.created)}</span></div>`).join("")
+        : '<div class="empty" style="padding:14px">Sé el primero en escribir.</div>';
+      box.scrollTop = box.scrollHeight;
+    }catch(_){}
+  },
+  async sendChat(){
+    const inp = document.getElementById("chatIn"); const msg = inp ? inp.value.trim() : "";
+    if(!msg) return;
+    try{ await sbRpc("wow_chat_send", { p_token: this.me.token, p_msg: msg }); if(inp) inp.value = ""; await this.loadChat(); }
+    catch(e){ toast(shortMsg(e), true); }
+  },
+  async createAlly(){
+    const name = ($("#alName").value || "").trim(), tag = ($("#alTag").value || "").trim(), descr = ($("#alDesc").value || "").trim();
+    if(name.length < 3) return toast("El nombre debe tener al menos 3 letras.", true);
+    if(tag.length < 2) return toast("La etiqueta debe tener al menos 2 letras.", true);
+    try{ await sbRpc("wow_alliance_create", { p_token: this.me.token, p_name: name, p_tag: tag, p_descr: descr }); await this.refresh(); await this.renderAlly(); toast("¡Alianza creada!"); }
+    catch(e){ toast(shortMsg(e), true); }
+  },
+  async joinAlly(id){
+    try{ await sbRpc("wow_alliance_join", { p_token: this.me.token, p_id: id }); await this.refresh(); await this.renderAlly(); toast("¡Te uniste a la alianza!"); }
+    catch(e){ toast(shortMsg(e), true); }
+  },
+  async leaveAlly(name){
+    if(!confirm("¿Seguro que quieres salir de " + name + "?")) return;
+    try{ await sbRpc("wow_alliance_leave", { p_token: this.me.token }); this.stopChatPoll(); await this.refresh(); await this.renderAlly(); toast("Has salido de la alianza."); }
+    catch(e){ toast(shortMsg(e), true); }
   }
 };
 
