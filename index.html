@@ -149,10 +149,10 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
 @media(max-width:520px){ .rv{font-size:15px} .res{min-width:calc(50% - 4px)} .mapGrid{grid-template-columns:repeat(auto-fill,minmax(76px,1fr))} }
 
 /* ---------- mapa 3D ---------- */
-.map3d{position:relative; height:min(72vh,600px); min-height:440px; margin:8px 0; border-radius:16px; overflow:hidden;
+.map3d{position:relative; height:min(84vh,800px); min-height:560px; margin:8px 0; border-radius:16px; overflow:hidden;
   background:radial-gradient(90% 70% at 50% 6%, #24354e 0%, #131d2b 46%, #06090f 100%);
   border:1px solid var(--line); touch-action:none; cursor:grab; user-select:none;
-  perspective:1500px; perspective-origin:50% 42%; box-shadow:0 0 50px rgba(0,0,0,.55) inset;}
+  perspective:1800px; perspective-origin:50% 44%; box-shadow:0 0 50px rgba(0,0,0,.55) inset;}
 .map3d.grab{cursor:grabbing}
 .map3d .stars{position:absolute; inset:0; opacity:.75; pointer-events:none;
   background-image:
@@ -163,36 +163,41 @@ table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
     radial-gradient(1.2px 1.2px at 52% 38%, rgba(255,255,255,.45), transparent),
     radial-gradient(1.2px 1.2px at 22% 84%, rgba(255,255,255,.5), transparent),
     radial-gradient(1.2px 1.2px at 90% 82%, rgba(255,255,255,.4), transparent);}
-.m3stage{position:absolute; left:50%; top:62%; width:0; height:0; transform-style:preserve-3d;
+.m3stage{position:absolute; left:50%; top:60%; width:0; height:0; transform-style:preserve-3d;
   transform:scale(var(--scale,1)) rotateX(var(--tilt,56deg)) rotateZ(var(--rotz,0deg));}
-.m3ground{position:absolute; left:0; top:0; width:860px; height:860px; margin:-430px 0 0 -430px; border-radius:50%;
+.m3ground{position:absolute; left:0; top:0; width:1560px; height:1420px; margin:-710px 0 0 -780px; border-radius:50%;
   background:
-    repeating-radial-gradient(circle at 50% 50%, rgba(150,205,140,.055) 0 2px, transparent 2px 46px),
-    radial-gradient(circle at 50% 50%, #35522f 0%, #26421f 50%, #182a19 76%, #0d180f 100%);
-  box-shadow:0 0 0 3px rgba(120,175,110,.14), 0 0 90px rgba(0,0,0,.85) inset;}
-.m3ring{position:absolute; left:0; top:0; width:640px; height:640px; margin:-320px 0 0 -320px; border-radius:50%;
-  border:2px dashed rgba(240,192,96,.22);}
+    repeating-radial-gradient(circle at 50% 50%, rgba(150,205,140,.05) 0 2px, transparent 2px 52px),
+    radial-gradient(closest-side, #3a5733 0%, #2b4a23 48%, #1c3018 76%, #101d10 100%);
+  box-shadow:0 0 0 5px rgba(90,140,85,.16), 0 0 130px rgba(0,0,0,.9) inset;}
+.m3shore{position:absolute; left:0; top:0; width:1620px; height:1480px; margin:-740px 0 0 -810px; border-radius:50%;
+  border:24px solid rgba(28,52,74,.7); box-shadow:0 0 70px rgba(0,0,0,.6);}
+.m3dshadow{position:absolute; left:0; top:0; width:48px; height:20px; margin:-10px 0 0 -24px; border-radius:50%;
+  background:radial-gradient(ellipse at 50% 50%, rgba(0,0,0,.45), transparent 72%);}
+.m3deco{position:absolute; left:0; bottom:0; transform-origin:50% 100%; pointer-events:none;
+  transform:scale(var(--s,1)) rotateZ(calc(-1 * var(--rotz,0deg))) rotateX(calc(-1 * var(--tilt,56deg)));}
+.m3deco .e{display:block; font-size:34px; line-height:1; filter:drop-shadow(0 5px 4px rgba(0,0,0,.6));}
 .m3stand{position:absolute; left:0; top:0; transform-style:preserve-3d; transform:translate3d(var(--x),var(--y),0);}
 .m3shadow{position:absolute; left:0; top:0; width:76px; height:32px; margin:-16px 0 0 -38px; border-radius:50%;
   background:radial-gradient(ellipse at 50% 50%, rgba(0,0,0,.6), transparent 72%);}
-.m3shadow.central{width:170px; height:74px; margin:-37px 0 0 -85px;
+.m3shadow.central{width:210px; height:90px; margin:-45px 0 0 -105px;
   background:radial-gradient(ellipse at 50% 50%, rgba(240,192,96,.4), rgba(0,0,0,.45) 55%, transparent 76%);}
-.m3bill{position:absolute; left:0; bottom:0; width:96px; height:118px; margin-left:-48px; transform-origin:50% 100%;
+.m3bill{position:absolute; left:0; bottom:0; width:104px; height:126px; margin-left:-52px; transform-origin:50% 100%;
   display:flex; flex-direction:column; align-items:center; justify-content:flex-end; cursor:pointer;
   transform:rotateZ(calc(-1 * var(--rotz,0deg))) rotateX(calc(-1 * var(--tilt,56deg)));}
-.m3castle{font-size:48px; line-height:1; filter:drop-shadow(0 7px 6px rgba(0,0,0,.65));}
+.m3castle{font-size:56px; line-height:1; filter:drop-shadow(0 7px 6px rgba(0,0,0,.65));}
 .m3bill.alianza .m3castle{filter:drop-shadow(0 0 12px rgba(90,160,255,.8)) drop-shadow(0 7px 6px rgba(0,0,0,.65));}
 .m3bill.horda .m3castle{filter:drop-shadow(0 0 12px rgba(255,95,95,.8)) drop-shadow(0 7px 6px rgba(0,0,0,.65));}
-.m3bill.empty .m3castle{font-size:38px; opacity:.4; filter:grayscale(1) drop-shadow(0 6px 5px rgba(0,0,0,.5));}
+.m3bill.empty .m3castle{font-size:44px; opacity:.4; filter:grayscale(1) drop-shadow(0 6px 5px rgba(0,0,0,.5));}
 .m3bill:hover{filter:brightness(1.2)}
 .m3bill.me .m3name{color:#0d180f; background:linear-gradient(#f0c060,#d4a017); font-weight:bold}
 .m3name{font-size:12px; color:var(--gold); background:rgba(10,7,4,.78); padding:2px 7px; border-radius:6px; margin-top:3px;
   max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .m3tag{font-size:10px; color:var(--dim); margin-top:1px}
 /* castillo central (imponente) */
-.m3bill.central{width:240px; height:250px; margin-left:-120px; cursor:default}
-.m3bill.central .m3castle{font-size:132px;
-  filter:drop-shadow(0 0 28px rgba(240,192,96,.8)) drop-shadow(0 14px 12px rgba(0,0,0,.75));}
+.m3bill.central{width:280px; height:290px; margin-left:-140px; cursor:default}
+.m3bill.central .m3castle{font-size:158px;
+  filter:drop-shadow(0 0 30px rgba(240,192,96,.8)) drop-shadow(0 16px 14px rgba(0,0,0,.75));}
 .m3bill.central .m3name{font-size:15px; color:var(--gold); letter-spacing:2px; background:rgba(10,7,4,.85)}
 .mapHint3d{position:absolute; left:12px; right:12px; bottom:10px; text-align:center; font-size:12px;
   color:var(--dim); pointer-events:none; text-shadow:0 1px 3px #000}

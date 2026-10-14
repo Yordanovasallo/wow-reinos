@@ -92,6 +92,31 @@ const TRP = {
   mago:    { e: "🔮", n: "Mago",    d: "Daño mágico" }
 };
 
+/* posiciones FIJAS de los 20 castillos sobre el mapa (x, y) */
+const SLOT_POS = [
+  [-500,-380],[-180,-520],[140,-490],[430,-430],[600,-170],
+  [620,120],[470,380],[200,520],[-90,560],[-380,500],
+  [-600,250],[-620,-80],[-360,-150],[-140,-300],[120,-220],
+  [350,-120],[330,170],[60,250],[-260,200],[250,-320]
+];
+/* PRNG con semilla fija -> decoraciones siempre en la misma posición */
+function mulberry32(a){ return function(){ a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const DECOS = (() => {
+  const rnd = mulberry32(20240517), out = []; let tries = 0;
+  while(out.length < 46 && tries < 1200){
+    tries++;
+    const ang = rnd() * Math.PI * 2, rad = 150 + rnd() * 560;
+    const x = Math.cos(ang) * rad, y = Math.sin(ang) * rad;
+    if(Math.hypot(x, y) < 165) continue;
+    if(SLOT_POS.some(s => Math.hypot(s[0] - x, s[1] - y) < 96)) continue;
+    if(out.some(d => Math.hypot(d.x - x, d.y - y) < 54)) continue;
+    const r = rnd();
+    const e = r < 0.52 ? "🌲" : r < 0.80 ? "🌳" : r < 0.92 ? "🪨" : "⛰️";
+    out.push({ x: Math.round(x), y: Math.round(y), e, s: (e === "⛰️" ? 1.25 : 0.85 + rnd() * 0.5) });
+  }
+  return out;
+})();
+
 /* ---------------- portal (entrar / crear) ---------------- */
 const Auth = {
   fac: null,
@@ -380,19 +405,25 @@ const Game = {
     }catch(e){ toast(shortMsg(e), true); }
   },
   renderMap(){
-    const N = 20, R = 320;
+    const N = SLOT_POS.length;
     const rot = this.mapRot || 0, tilt = this.mapTilt != null ? this.mapTilt : 56;
     const list = this.mapList || [];
     const bySlot = {};
     list.forEach(r => { const s = ((r.pos % N) + N) % N; if(bySlot[s] == null) bySlot[s] = r; });
-    let slots = "";
+
+    let pieces = "";
+    DECOS.forEach(d => {
+      pieces += `<div class="m3stand" style="--x:${d.x}px;--y:${d.y}px">
+          <div class="m3dshadow"></div>
+          <div class="m3deco" style="--s:${d.s.toFixed(2)}"><span class="e">${d.e}</span></div>
+        </div>`;
+    });
     for(let i = 0; i < N; i++){
-      const a = (i / N) * Math.PI * 2 - Math.PI / 2;
-      const x = Math.round(Math.cos(a) * R), y = Math.round(Math.sin(a) * R);
+      const x = SLOT_POS[i][0], y = SLOT_POS[i][1];
       const r = bySlot[i];
       if(r){
         const fac = r.faction === "horda" ? "horda" : "alianza";
-        slots += `<div class="m3stand" style="--x:${x}px;--y:${y}px">
+        pieces += `<div class="m3stand" style="--x:${x}px;--y:${y}px">
             <div class="m3shadow"></div>
             <div class="m3bill ${fac}${r.me ? " me" : ""}" data-pos="${r.pos}">
               <div class="m3castle">🏰</div>
@@ -401,7 +432,7 @@ const Game = {
             </div>
           </div>`;
       }else{
-        slots += `<div class="m3stand" style="--x:${x}px;--y:${y}px">
+        pieces += `<div class="m3stand" style="--x:${x}px;--y:${y}px">
             <div class="m3shadow"></div>
             <div class="m3bill empty"><div class="m3castle">🏰</div></div>
           </div>`;
@@ -412,7 +443,7 @@ const Game = {
         <div class="stars"></div>
         <div class="m3stage">
           <div class="m3ground"></div>
-          <div class="m3ring"></div>
+          <div class="m3shore"></div>
           <div class="m3stand" style="--x:0px;--y:0px">
             <div class="m3shadow central"></div>
             <div class="m3bill central">
@@ -420,15 +451,16 @@ const Game = {
               <div class="m3name">TRONO DE AZEROTH</div>
             </div>
           </div>
-          ${slots}
+          ${pieces}
         </div>
-        <div class="mapHint3d">🗺️ 20 castillos alrededor del Trono · arrastra para girar · toca un castillo para ver su ficha</div>
+        <div class="mapHint3d">🗺️ 20 castillos repartidos por el mapa · 🏯 fortaleza central · arrastra para girar · toca un castillo para ver su ficha</div>
       </div>`;
     const root = document.getElementById("m3root");
     const fitScale = () => {
       const r = document.getElementById("m3root"); if(!r) return;
-      const w = r.clientWidth || 820;
-      r.style.setProperty("--scale", Math.min(1, Math.max(0.42, w / 820)).toFixed(3));
+      const w = r.clientWidth || 820, h = r.clientHeight || 600;
+      const s = Math.min(w / 1560, h / 1180);
+      r.style.setProperty("--scale", Math.max(0.32, Math.min(1.05, s)).toFixed(3));
     };
     fitScale();
     if(!this._resizeHooked){ this._resizeHooked = true; window.addEventListener("resize", fitScale); }
