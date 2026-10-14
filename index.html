@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reinos de Azeroth</title>
+<style>
+:root{
+  --bg:#0f0b07; --panel:#1a130c; --panel2:#241a10; --line:#4a3620;
+  --gold:#f0c060; --gold2:#d4a017; --txt:#e8dcc8; --dim:#a89878;
+  --blue:#3b82f6; --red:#ef4444; --green:#4ade80; --warn:#fbbf24; --bad:#f87171;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:
+    radial-gradient(1200px 600px at 50% -10%, #2a1d0f 0%, transparent 60%),
+    linear-gradient(#0f0b07, #0a0705 60%, #0d0906);
+  color:var(--txt); min-height:100vh;
+  font-family:Georgia,"Times New Roman",serif;
+}
+.hidden{display:none!important}
+.screen{min-height:100vh; display:flex; flex-direction:column; align-items:center}
+button{font-family:inherit}
+input{font-family:inherit}
+
+/* ---------- portal ---------- */
+#screenPortal{justify-content:center; padding:24px 16px}
+.portalBox{
+  width:100%; max-width:430px; background:linear-gradient(#211709,#170f08);
+  border:2px solid var(--gold2); border-radius:14px; padding:26px 22px 24px;
+  box-shadow:0 0 40px rgba(212,160,23,.15), inset 0 0 22px rgba(0,0,0,.5);
+}
+.logo{font-size:30px; text-align:center; color:var(--gold); letter-spacing:2px; text-shadow:0 2px 0 #000, 0 0 18px rgba(240,192,96,.45); margin:2px 0 6px}
+.logoSub{text-align:center; color:var(--dim); font-size:13px; margin:0 0 18px; font-style:italic}
+.ptabs{display:flex; gap:8px; margin-bottom:16px}
+.ptabs button{flex:1; padding:9px; background:#0f0a06; border:1px solid var(--line); color:var(--dim); border-radius:8px; cursor:pointer; font-size:14px}
+.ptabs button.on{background:var(--gold2); color:#1a1206; border-color:var(--gold); font-weight:bold}
+form{display:flex; flex-direction:column; gap:10px}
+input{padding:10px 12px; background:#0c0805; border:1px solid var(--line); border-radius:7px; color:var(--txt); font-size:14px}
+input:focus{outline:none; border-color:var(--gold2)}
+.facLabel{color:var(--dim); font-size:13px; margin-top:2px}
+.facRow{display:flex; gap:8px}
+.facRow button{flex:1; padding:10px; background:#0f0a06; border:1px solid var(--line); border-radius:8px; color:var(--dim); cursor:pointer; font-size:14px}
+.facRow button.on[data-fac=alianza]{background:var(--blue); color:#fff; border-color:#93c5fd}
+.facRow button.on[data-fac=horda]{background:var(--red); color:#fff; border-color:#fca5a5}
+.btn{padding:11px; background:linear-gradient(#f0c060,#d4a017); color:#1a1206; border:none; border-radius:8px; font-weight:bold; cursor:pointer; font-size:14px}
+.btn:hover{filter:brightness(1.08)}
+.btn:disabled{opacity:.45; cursor:not-allowed; filter:none}
+.btn.sm{padding:6px 10px; font-size:12px; background:#2a1e12; color:var(--txt); border:1px solid var(--line)}
+.btn.sm:hover{border-color:var(--gold2)}
+.notice{font-size:13px; min-height:16px; color:var(--dim); text-align:center}
+.notice.danger{color:var(--bad)}
+.notice.ok{color:var(--green)}
+
+/* ---------- juego ---------- */
+#screenGame{align-items:stretch; padding:14px; max-width:920px; margin:0 auto; width:100%}
+.top{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px}
+.realmName{font-size:22px; color:var(--gold); text-shadow:0 1px 0 #000}
+.facBadge{font-size:12px; padding:3px 9px; border-radius:20px; color:#fff; margin-left:8px; vertical-align:middle}
+.facBadge.alianza{background:var(--blue)} .facBadge.horda{background:var(--red)}
+.topR{display:flex; gap:8px; align-items:center}
+.pts{color:var(--dim); font-size:13px}
+.pts b{color:var(--gold)}
+.resBar{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px}
+.res{flex:1; min-width:120px; background:linear-gradient(#241a10,#1a1209); border:1px solid var(--line); border-radius:9px; padding:9px 11px; display:flex; align-items:center; gap:8px}
+.ri{font-size:19px}
+.rv{font-size:16px; font-weight:bold; color:var(--gold); font-variant-numeric:tabular-nums}
+.rh{margin-left:auto; font-size:11px; color:var(--green)}
+.res.cap .rv{color:var(--dim); font-size:14px}
+.queueBox{background:#14100a; border:1px solid var(--gold2); border-radius:9px; padding:10px 12px; margin-bottom:12px}
+.qLabel{font-size:14px; margin-bottom:6px}
+.qBar{height:10px; background:#0c0805; border-radius:6px; overflow:hidden; border:1px solid var(--line)}
+.qFill{height:100%; width:0%; background:linear-gradient(90deg,var(--gold2),var(--gold)); transition:width .4s linear}
+.qTime{text-align:right; font-size:12px; color:var(--dim); margin-top:5px; font-variant-numeric:tabular-nums}
+.gameTabs{display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap}
+.gameTabs button{flex:1; min-width:110px; padding:9px; background:#150f09; border:1px solid var(--line); color:var(--dim); border-radius:8px; cursor:pointer; font-size:14px}
+.gameTabs button.on{background:var(--gold2); color:#1a1206; border-color:var(--gold); font-weight:bold}
+main{flex:1}
+.grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:10px}
+.card{background:linear-gradient(#211709,#170f08); border:1px solid var(--line); border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:10px}
+.cardTop{display:flex; gap:10px; align-items:flex-start}
+.emoji{font-size:26px; line-height:1}
+.bName{font-size:15px; font-weight:bold; color:var(--txt)}
+.lvl{color:var(--gold); font-size:12px; margin-left:5px}
+.bDesc{font-size:12px; color:var(--dim); margin-top:3px}
+.cardBot{display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-top:auto}
+.costs{display:flex; gap:9px; flex-wrap:wrap; font-size:12px}
+.costs .c{color:var(--dim); font-variant-numeric:tabular-nums}
+.costs .c.no{color:var(--bad); font-weight:bold}
+.troopQty{font-size:13px; color:var(--gold)}
+.troopRow{display:flex; gap:8px; align-items:center}
+.troopRow input{width:78px; padding:7px 9px}
+.empty{text-align:center; color:var(--dim); padding:26px 10px}
+table.rank{width:100%; border-collapse:collapse; font-size:14px}
+table.rank th{background:#241a10; color:var(--dim); font-size:12px; text-align:left; padding:8px}
+table.rank td{padding:9px 8px; border-bottom:1px solid #2a1e12}
+table.rank tr.me td{background:rgba(240,192,96,.08); color:var(--gold)}
+.rankFac{font-size:11px; padding:2px 7px; border-radius:12px; color:#fff}
+.acctBox{width:100%; max-width:430px; background:linear-gradient(#211709,#170f08); border:2px solid var(--gold2); border-radius:12px; padding:22px}
+.toast{position:fixed; left:50%; bottom:22px; transform:translateX(-50%); background:#2a1e12; border:1px solid var(--gold2); color:var(--gold); padding:11px 18px; border-radius:9px; font-size:14px; box-shadow:0 6px 22px rgba(0,0,0,.5); z-index:50}
+.toast.bad{border-color:var(--bad); color:var(--bad)}
+@media(max-width:520px){ .rv{font-size:15px} .res{min-width:calc(50% - 4px)} }
+</style>
+</head>
+<body>
+
+<!-- ============ PORTAL ============ -->
+<div id="screenPortal" class="screen hidden">
+  <div class="portalBox">
+    <div class="logo">⚔️ REINOS DE AZEROTH</div>
+    <p class="logoSub">Construye tu reino, entrena tu ejército, conquista el ranking.</p>
+    <div class="ptabs">
+      <button id="tabLogin" class="on">Entrar</button>
+      <button id="tabReg">Crear reino</button>
+    </div>
+
+    <form id="formLogin">
+      <input id="liName" placeholder="Nombre de tu reino" autocomplete="username">
+      <input id="liPass" type="password" placeholder="Contraseña" autocomplete="current-password">
+      <button class="btn">Entrar al reino</button>
+      <div id="liMsg" class="notice"></div>
+    </form>
+
+    <form id="formReg" class="hidden">
+      <input id="rgName" placeholder="Nombre de tu reino" autocomplete="username">
+      <input id="rgPass" type="password" placeholder="Contraseña" autocomplete="new-password">
+      <input id="rgPass2" type="password" placeholder="Repite la contraseña">
+      <div class="facLabel">Elige tu bando:</div>
+      <div class="facRow">
+        <button type="button" class="fac" data-fac="alianza">🛡️ Alianza</button>
+        <button type="button" class="fac" data-fac="horda">⚔️ Horda</button>
+      </div>
+      <button class="btn">Crear mi reino</button>
+      <div id="rgMsg" class="notice"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ============ JUEGO ============ -->
+<div id="screenGame" class="screen hidden">
+  <div class="top">
+    <div><span class="realmName" id="gName"></span><span class="facBadge" id="gFac"></span></div>
+    <div class="topR">
+      <span class="pts">Puntos: <b id="gPts">0</b></span>
+      <button class="btn sm" id="btnAcct">👤 Cuenta</button>
+      <button class="btn sm" id="btnLogout">Salir</button>
+    </div>
+  </div>
+
+  <div class="resBar">
+    <div class="res"><span class="ri">💰</span><span class="rv" id="rGold">0</span><span class="rh" id="rGoldH"></span></div>
+    <div class="res"><span class="ri">🪵</span><span class="rv" id="rWood">0</span><span class="rh" id="rWoodH"></span></div>
+    <div class="res"><span class="ri">⛏️</span><span class="rv" id="rOre">0</span><span class="rh" id="rOreH"></span></div>
+    <div class="res cap"><span class="ri">📦</span><span class="rv" id="rCap">0</span></div>
+  </div>
+
+  <div id="queueBox" class="queueBox hidden">
+    <div class="qLabel" id="qLabel"></div>
+    <div class="qBar"><div class="qFill" id="qFill"></div></div>
+    <div class="qTime" id="qTime"></div>
+  </div>
+
+  <nav class="gameTabs">
+    <button data-tab="bld" class="on">🏰 Edificios</button>
+    <button data-tab="troop">⚔️ Tropas</button>
+    <button data-tab="rank">🏆 Ranking</button>
+  </nav>
+
+  <main>
+    <section id="tabBld" class="tabpane"></section>
+    <section id="tabTroop" class="tabpane hidden"></section>
+    <section id="tabRank" class="tabpane hidden"></section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+</div>
+
+<!-- ============ CUENTA ============ -->
+<div id="screenAcct" class="screen hidden">
+  <div class="acctBox">
+    <h2 style="margin-top:0;color:var(--gold)">👤 Mi reino</h2>
+    <p id="acctInfo" style="color:var(--dim)"></p>
+    <form id="formPw">
+      <input id="pw1" type="password" placeholder="Nueva contraseña" autocomplete="new-password">
+      <input id="pw2" type="password" placeholder="Repite la contraseña">
+      <button class="btn">Cambiar contraseña</button>
+      <div id="pwMsg" class="notice"></div>
+    </form>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn sm" id="btnBack" style="flex:1">⬅ Volver al reino</button>
+      <button class="btn sm" id="btnLogout2" style="flex:1">Cerrar sesión</button>
+    </div>
+  </div>
+</div>
+
+<script src="wow-app.js"></script>
+</body>
+</html>
