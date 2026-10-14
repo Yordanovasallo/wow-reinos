@@ -205,7 +205,7 @@ const Auth = {
 
 /* ---------------- el reino ---------------- */
 const Game = {
-  me: null, st: null, stNow: 0, tab: "bld", timer: null, syncing: false, rankLoaded: false, mapList: [], chatTimer: null,
+  me: null, st: null, stNow: 0, tab: "bld", timer: null, syncing: false, rankLoaded: false, mapList: [], chatTimer: null, mapRot: 0, mapTilt: 56,
 
   async start(me){
     this.me = me;
@@ -380,28 +380,79 @@ const Game = {
     }catch(e){ toast(shortMsg(e), true); }
   },
   renderMap(){
+    const N = 20, R = 320;
+    const rot = this.mapRot || 0, tilt = this.mapTilt != null ? this.mapTilt : 56;
     const list = this.mapList || [];
-    const byPos = {}; list.forEach(r => byPos[r.pos] = r);
-    const maxPos = list.reduce((m, r) => Math.max(m, r.pos), -1);
-    const total = Math.max(36, Math.ceil((maxPos + 1) / 6) * 6);
-    const TERRAIN = ["🌲", "⛰️", "🌊", "🏔️", "🌳", "🗻", "🌾", "🏞️"];
-    let html = '<div class="mapHint">🗺️ Cada recuadro es un reino. Toca uno para ver su ficha.</div><div class="mapGrid">';
-    for(let i = 0; i < total; i++){
-      const r = byPos[i];
+    const bySlot = {};
+    list.forEach(r => { const s = ((r.pos % N) + N) % N; if(bySlot[s] == null) bySlot[s] = r; });
+    let slots = "";
+    for(let i = 0; i < N; i++){
+      const a = (i / N) * Math.PI * 2 - Math.PI / 2;
+      const x = Math.round(Math.cos(a) * R), y = Math.round(Math.sin(a) * R);
+      const r = bySlot[i];
       if(r){
-        html += `<div class="tile realm ${r.faction === "horda" ? "horda" : "alianza"}${r.me ? " me" : ""}" data-i="${i}">
-          <div class="tEmoji">${r.faction === "horda" ? "⚔️" : "🛡️"}</div>
-          <div class="tName">${esc(r.name)}</div>
-          ${r.alliance ? `<div class="tTag">[${esc(r.alliance)}]</div>` : ""}
-        </div>`;
+        const fac = r.faction === "horda" ? "horda" : "alianza";
+        slots += `<div class="m3stand" style="--x:${x}px;--y:${y}px">
+            <div class="m3shadow"></div>
+            <div class="m3bill ${fac}${r.me ? " me" : ""}" data-pos="${r.pos}">
+              <div class="m3castle">🏰</div>
+              <div class="m3name">${esc(r.name)}</div>
+              ${r.alliance ? `<div class="m3tag">[${esc(r.alliance)}]</div>` : ""}
+            </div>
+          </div>`;
       }else{
-        html += `<div class="tile empty">${TERRAIN[i % TERRAIN.length]}</div>`;
+        slots += `<div class="m3stand" style="--x:${x}px;--y:${y}px">
+            <div class="m3shadow"></div>
+            <div class="m3bill empty"><div class="m3castle">🏰</div></div>
+          </div>`;
       }
     }
-    html += "</div>";
-    $("#tabMap").innerHTML = html;
-    $("#tabMap").querySelectorAll(".tile.realm").forEach(t => {
-      t.onclick = () => this.openProfile(parseInt(t.dataset.i, 10));
+    $("#tabMap").innerHTML = `
+      <div class="map3d" id="m3root" style="--rotz:${rot}deg;--tilt:${tilt}deg">
+        <div class="stars"></div>
+        <div class="m3stage">
+          <div class="m3ground"></div>
+          <div class="m3ring"></div>
+          <div class="m3stand" style="--x:0px;--y:0px">
+            <div class="m3shadow central"></div>
+            <div class="m3bill central">
+              <div class="m3castle">🏯</div>
+              <div class="m3name">TRONO DE AZEROTH</div>
+            </div>
+          </div>
+          ${slots}
+        </div>
+        <div class="mapHint3d">🗺️ 20 castillos alrededor del Trono · arrastra para girar · toca un castillo para ver su ficha</div>
+      </div>`;
+    const root = document.getElementById("m3root");
+    const fitScale = () => {
+      const r = document.getElementById("m3root"); if(!r) return;
+      const w = r.clientWidth || 820;
+      r.style.setProperty("--scale", Math.min(1, Math.max(0.42, w / 820)).toFixed(3));
+    };
+    fitScale();
+    if(!this._resizeHooked){ this._resizeHooked = true; window.addEventListener("resize", fitScale); }
+    let dragging = false, moved = false, sx = 0, sy = 0, r0 = 0, t0 = 0;
+    root.addEventListener("pointerdown", e => {
+      dragging = true; moved = false; sx = e.clientX; sy = e.clientY;
+      r0 = this.mapRot || 0; t0 = this.mapTilt != null ? this.mapTilt : 56;
+      root.classList.add("grab");
+      try{ root.setPointerCapture(e.pointerId); }catch(_){}
+    });
+    root.addEventListener("pointermove", e => {
+      if(!dragging) return;
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      if(Math.abs(dx) + Math.abs(dy) > 4) moved = true;
+      this.mapRot = r0 + dx * 0.4;
+      this.mapTilt = Math.max(38, Math.min(72, t0 - dy * 0.15));
+      root.style.setProperty("--rotz", this.mapRot.toFixed(1) + "deg");
+      root.style.setProperty("--tilt", this.mapTilt.toFixed(1) + "deg");
+    });
+    const endDrag = () => { dragging = false; root.classList.remove("grab"); };
+    root.addEventListener("pointerup", endDrag);
+    root.addEventListener("pointercancel", endDrag);
+    root.querySelectorAll(".m3bill[data-pos]").forEach(b => {
+      b.onclick = () => { if(!moved) this.openProfile(parseInt(b.dataset.pos, 10)); };
     });
   },
   openProfile(pos){
